@@ -74,7 +74,7 @@ Shader "Unlit/WorldNormals"
 
 				// modulate sky color with the base texture, and the occlusion map
 				fixed3 baseColor = tex2D(_MainTex, i.uv).rgb;
-				c.rgb *= baseColor;
+				c.rgb = baseColor;// *skyColor;
 
 				return c;
 			}
