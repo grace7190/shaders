@@ -16,7 +16,6 @@
 			CGPROGRAM
 			#pragma vertex vert
 			#pragma fragment frag
-			// make fog work
 			
 			#include "UnityCG.cginc"
 			
