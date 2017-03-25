@@ -6,6 +6,7 @@ Shader "Unlit/WorldNormals"
 	{
 		_MainTex ("Texture", 2D) = "white" {}
 		_BumpMap("Normal Map", 2D) = "bump" {}
+		_Tiling("Tiling", Float) = 1.0
 		//_Specular("Spec", Range(0.0,50.0)) = 0.0
 	}
 
@@ -43,12 +44,13 @@ Shader "Unlit/WorldNormals"
 
 				//from shader properties
 			//float _Specular;
+			float _Tiling;
 
 			v2f vert(appdata_base v)
 			{
 				v2f o;
 				o.pos = UnityObjectToClipPos(v.vertex);
-				o.uv = v.texcoord;
+				o.uv = v.texcoord * _Tiling;
 				half3 worldNormal = UnityObjectToWorldNormal(v.normal);
 				half nl = max(0, dot(worldNormal, _WorldSpaceLightPos0.xyz));
 				o.diff = nl * _LightColor0.rgb;
