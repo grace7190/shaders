@@ -6,6 +6,7 @@ Shader "Unlit/WorldNormals"
 	{
 		_MainTex ("Texture", 2D) = "white" {}
 		_BumpMap("Normal Map", 2D) = "bump" {}
+		_Specular("Spec", Range(0.0,50.0)) = 0.0
 	}
 
 	SubShader
@@ -13,6 +14,7 @@ Shader "Unlit/WorldNormals"
 		Tags { "RenderType"="Opaque" }
 		LOD 100
 
+		//diffuse/texture pass
 		Pass
 		{
 			CGPROGRAM
@@ -49,7 +51,7 @@ Shader "Unlit/WorldNormals"
 				return o;
 			}
 
-			//from shader
+			//from shader properties
 			sampler2D _MainTex;
 			sampler2D _BumpMap;
 
@@ -74,11 +76,171 @@ Shader "Unlit/WorldNormals"
 
 				// modulate sky color with the base texture, and the occlusion map
 				fixed3 baseColor = tex2D(_MainTex, i.uv).rgb;
-				c.rgb = baseColor;// *skyColor;
+				c.rgb = baseColor;// + tnormal;// *skyColor;
 
 				return c;
 			}
 			ENDCG
 		}
+
+		//// lighting pass
+		//Pass
+		//	{
+		//	// base pass in forward rendering
+		//	Tags{ "LightMode" = "ForwardBase" }
+
+		//	CGPROGRAM
+		//	#pragma vertex vert
+		//	#pragma fragment frag
+		//	#include "UnityCG.cginc"
+		//	#include "UnityLightingCommon.cginc"
+
+		//	struct v2f
+		//	{
+		//		float2 uv : TEXCOORD0;
+		//		fixed4 diff : COLOR0;
+		//		fixed4 spec : COLOR1;
+		//		float4 vertex : SV_POSITION;
+		//	};
+
+		//	//from shader properties
+		//	float _specular;
+
+		//	v2f vert(appdata_base v)
+		//	{
+		//		v2f o;
+		//		o.vertex = UnityObjectToClipPos(v.vertex);
+		//		o.uv = v.texcoord;
+		//		half3 worldNormal = UnityObjectToWorldNormal(v.normal);
+
+		//		
+		//		//normal = worldNormal
+		//		//lightDir = _WorldSpaceLightPos0.xyz
+		//		//viewDir = WorldSpaceViewDir(v.vertex)
+		//		//blinn-phong
+		//		half3 halfDir = normalize(_WorldSpaceLightPos0.xyz + normalize(WorldSpaceViewDir(v.vertex)));
+		//		float specAngle = max(dot(halfDir, worldNormal), 0.0);
+		//		//o.spec = pow(specAngle, _specular) * _LightColor0;
+
+		//		//PHONG I GUESS
+		//		//half3 reflectDir = reflect(-_WorldSpaceLightPos0.xyz, worldNormal);
+		//		//half specAngle = max(dot(reflectDir, WorldSpaceViewDir(v.vertex)),0);
+		//		//o.spec = pow(specAngle, _specular / 4.0) * _LightColor0;
+
+		//		// diffuse + specular
+		//		half nl = max(0, dot(worldNormal, _WorldSpaceLightPos0.xyz)) + pow(specAngle, _specular) * _LightColor0;;
+		//		o.diff = nl;// *_LightColor0;
+		//		o.diff.rgb += ShadeSH9(half4(worldNormal, 1));
+		//		
+		//		return o;
+		//	}
+
+		//	sampler2D _MainTex;
+
+		//	fixed4 frag(v2f i) : SV_Target
+		//	{
+		//		// sample texture
+		//		fixed4 col = tex2D(_MainTex, i.uv);
+		//		// multiply by lighting
+		//		col *= i.diff;
+		//		return col;
+		//	}
+		//		ENDCG
+		//	}
+
+		// cast shadow pass
+		Pass
+			{
+			Tags{ "LightMode" = "ShadowCaster" }
+
+			CGPROGRAM
+			#pragma vertex vert
+			#pragma fragment frag
+			#pragma multi_compile_shadowcaster
+			#include "UnityCG.cginc"
+
+			struct v2f {
+				V2F_SHADOW_CASTER;
+				};
+
+			v2f vert(appdata_base v)
+				{
+					v2f o;
+					TRANSFER_SHADOW_CASTER_NORMALOFFSET(o)
+						return o;
+				}
+
+			float4 frag(v2f i) : SV_Target
+				{
+					SHADOW_CASTER_FRAGMENT(i)
+				}
+			ENDCG
+		}
+		
+		// surface lighting pass
+		Pass
+			{
+			Tags{ "LightMode" = "ForwardBase" }
+			CGPROGRAM
+			#pragma vertex vert
+			#pragma fragment frag
+			#include "UnityCG.cginc"
+			#include "Lighting.cginc"
+
+			// compile shader into multiple variants, with and without shadows
+			// (we don't care about any lightmaps yet, so skip these variants)
+			#pragma multi_compile_fwdbase nolightmap nodirlightmap nodynlightmap novertexlight
+			// shadow helper functions and macros
+			#include "AutoLight.cginc"
+
+			struct v2f
+			{
+				float2 uv : TEXCOORD0;
+				SHADOW_COORDS(1) // put shadows data into TEXCOORD1
+				fixed3 diff : COLOR0;
+				fixed3 ambient : COLOR1;
+				fixed3 spec : COLOR2;
+				float4 pos : SV_POSITION;
+			};
+
+				//from shader properties
+			float _Specular;
+
+			v2f vert(appdata_base v)
+			{
+				v2f o;
+				o.pos = UnityObjectToClipPos(v.vertex);
+				o.uv = v.texcoord;
+				half3 worldNormal = UnityObjectToWorldNormal(v.normal);
+				half nl = max(0, dot(worldNormal, _WorldSpaceLightPos0.xyz));
+				o.diff = nl * _LightColor0.rgb;
+				o.ambient = ShadeSH9(half4(worldNormal,1));
+
+				//lightDir = _WorldSpaceLightPos0.xyz
+				//viewDir = WorldSpaceViewDir(v.vertex)
+				//blinn-phong
+				half3 halfDir = normalize(_WorldSpaceLightPos0.xyz + normalize(WorldSpaceViewDir(v.vertex)));
+				float specAngle = max(dot(halfDir, worldNormal), 0.0);
+				o.spec = pow(specAngle, _Specular) * _LightColor0;
+
+				// compute shadows data
+				TRANSFER_SHADOW(o)
+				return o;
+			}
+
+			sampler2D _MainTex;
+
+			fixed4 frag(v2f i) : SV_Target
+			{
+				fixed4 col = tex2D(_MainTex, i.uv);
+				// shadow attenuation (1.0 = fully lit, 0.0 = fully shadowed)
+				fixed shadow = SHADOW_ATTENUATION(i);
+				fixed3 lighting = i.diff * shadow + i.ambient + i.spec * shadow;
+				col.rgb *= lighting;
+				return col;
+			}
+			ENDCG
+		}
+
 	}
 }
