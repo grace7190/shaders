@@ -15,171 +15,11 @@ Shader "Unlit/WorldNormals"
 		LOD 100
 
 		//diffuse/texture pass
-		Pass
-		{
-			CGPROGRAM
-			#pragma vertex vert
-			#pragma fragment frag
-			#include "UnityCG.cginc"
 
-			struct v2f {
-				half3 worldPos : TEXCOORD0;
-				half3 tspace0 : TEXCOORD1; // tangent.x, bitangent.x, normal.x
-				half3 tspace1 : TEXCOORD2; // tangent.y, bitangent.y, normal.y
-				half3 tspace2 : TEXCOORD3; // tangent.z, bitangent.z, normal.z
-				// texture coordinate for the normal map
-				float2 uv : TEXCOORD4;
-				float4 pos : SV_POSITION;
-			};
 
-			// vertex shader: takes object space normal as input too
-			v2f vert(float4 vertex : POSITION, float3 normal : NORMAL, float4 tangent : TANGENT, float2 uv : TEXCOORD0)
-			{
-				v2f o;
-				o.pos = UnityObjectToClipPos(vertex);
-				o.worldPos = mul(unity_ObjectToWorld, vertex).xyz;
-				half3 wNormal = UnityObjectToWorldNormal(normal);
-				half3 wTangent = UnityObjectToWorldDir(tangent.xyz);
-				// compute bitangent from cross product of normal and tangent
-				half tangentSign = tangent.w * unity_WorldTransformParams.w;
-				half3 wBitangent = cross(wNormal, wTangent) * tangentSign;
-				// tangent space matrix
-				o.tspace0 = half3(wTangent.x, wBitangent.x, wNormal.x);
-				o.tspace1 = half3(wTangent.y, wBitangent.y, wNormal.y);
-				o.tspace2 = half3(wTangent.z, wBitangent.z, wNormal.z);
-				o.uv = uv;
-				return o;
-			}
-
-			//from shader properties
-			sampler2D _MainTex;
-			sampler2D _BumpMap;
-
-			fixed4 frag(v2f i) : SV_Target
-			{
-				// sample the normal map, and decode from the Unity encoding
-				half3 tnormal = UnpackNormal(tex2D(_BumpMap, i.uv));
-				// normal from tangent to world space
-				half3 worldNormal;
-				worldNormal.x = dot(i.tspace0, tnormal);
-				worldNormal.y = dot(i.tspace1, tnormal);
-				worldNormal.z = dot(i.tspace2, tnormal);
-
-				//compute view dir and refl vector per pixel
-				half3 worldViewDir = normalize(UnityWorldSpaceViewDir(i.worldPos));
-				half3 worldRefl = reflect(-worldViewDir, worldNormal);
-
-				half4 skyData = UNITY_SAMPLE_TEXCUBE(unity_SpecCube0, worldRefl);
-				half3 skyColor = DecodeHDR(skyData, unity_SpecCube0_HDR);
-				fixed4 c = 0;
-				c.rgb = skyColor;
-
-				// modulate sky color with the base texture, and the occlusion map
-				fixed3 baseColor = tex2D(_MainTex, i.uv).rgb;
-				c.rgb = baseColor;// + tnormal;// *skyColor;
-
-				return c;
-			}
-			ENDCG
-		}
-
-		//// lighting pass
-		//Pass
-		//	{
-		//	// base pass in forward rendering
-		//	Tags{ "LightMode" = "ForwardBase" }
-
-		//	CGPROGRAM
-		//	#pragma vertex vert
-		//	#pragma fragment frag
-		//	#include "UnityCG.cginc"
-		//	#include "UnityLightingCommon.cginc"
-
-		//	struct v2f
-		//	{
-		//		float2 uv : TEXCOORD0;
-		//		fixed4 diff : COLOR0;
-		//		fixed4 spec : COLOR1;
-		//		float4 vertex : SV_POSITION;
-		//	};
-
-		//	//from shader properties
-		//	float _specular;
-
-		//	v2f vert(appdata_base v)
-		//	{
-		//		v2f o;
-		//		o.vertex = UnityObjectToClipPos(v.vertex);
-		//		o.uv = v.texcoord;
-		//		half3 worldNormal = UnityObjectToWorldNormal(v.normal);
-
-		//		
-		//		//normal = worldNormal
-		//		//lightDir = _WorldSpaceLightPos0.xyz
-		//		//viewDir = WorldSpaceViewDir(v.vertex)
-		//		//blinn-phong
-		//		half3 halfDir = normalize(_WorldSpaceLightPos0.xyz + normalize(WorldSpaceViewDir(v.vertex)));
-		//		float specAngle = max(dot(halfDir, worldNormal), 0.0);
-		//		//o.spec = pow(specAngle, _specular) * _LightColor0;
-
-		//		//PHONG I GUESS
-		//		//half3 reflectDir = reflect(-_WorldSpaceLightPos0.xyz, worldNormal);
-		//		//half specAngle = max(dot(reflectDir, WorldSpaceViewDir(v.vertex)),0);
-		//		//o.spec = pow(specAngle, _specular / 4.0) * _LightColor0;
-
-		//		// diffuse + specular
-		//		half nl = max(0, dot(worldNormal, _WorldSpaceLightPos0.xyz)) + pow(specAngle, _specular) * _LightColor0;;
-		//		o.diff = nl;// *_LightColor0;
-		//		o.diff.rgb += ShadeSH9(half4(worldNormal, 1));
-		//		
-		//		return o;
-		//	}
-
-		//	sampler2D _MainTex;
-
-		//	fixed4 frag(v2f i) : SV_Target
-		//	{
-		//		// sample texture
-		//		fixed4 col = tex2D(_MainTex, i.uv);
-		//		// multiply by lighting
-		//		col *= i.diff;
-		//		return col;
-		//	}
-		//		ENDCG
-		//	}
-
-		// cast shadow pass
-		Pass
-			{
-			Tags{ "LightMode" = "ShadowCaster" }
-
-			CGPROGRAM
-			#pragma vertex vert
-			#pragma fragment frag
-			#pragma multi_compile_shadowcaster
-			#include "UnityCG.cginc"
-
-			struct v2f {
-				V2F_SHADOW_CASTER;
-				};
-
-			v2f vert(appdata_base v)
-				{
-					v2f o;
-					TRANSFER_SHADOW_CASTER_NORMALOFFSET(o)
-						return o;
-				}
-
-			float4 frag(v2f i) : SV_Target
-				{
-					SHADOW_CASTER_FRAGMENT(i)
-				}
-			ENDCG
-		}
-		
 		// surface lighting pass
 		Pass
-			{
+		{
 			Tags{ "LightMode" = "ForwardBase" }
 			CGPROGRAM
 			#pragma vertex vert
@@ -188,9 +28,7 @@ Shader "Unlit/WorldNormals"
 			#include "Lighting.cginc"
 
 			// compile shader into multiple variants, with and without shadows
-			// (we don't care about any lightmaps yet, so skip these variants)
 			#pragma multi_compile_fwdbase nolightmap nodirlightmap nodynlightmap novertexlight
-			// shadow helper functions and macros
 			#include "AutoLight.cginc"
 
 			struct v2f
@@ -216,9 +54,7 @@ Shader "Unlit/WorldNormals"
 				o.diff = nl * _LightColor0.rgb;
 				o.ambient = ShadeSH9(half4(worldNormal,1));
 
-				//lightDir = _WorldSpaceLightPos0.xyz
-				//viewDir = WorldSpaceViewDir(v.vertex)
-				//blinn-phong
+				//blinn-phong | halfDir=lightDir+viewDir
 				half3 halfDir = normalize(_WorldSpaceLightPos0.xyz + normalize(WorldSpaceViewDir(v.vertex)));
 				float specAngle = max(dot(halfDir, worldNormal), 0.0);
 				o.spec = pow(specAngle, _Specular) * _LightColor0;
@@ -233,12 +69,111 @@ Shader "Unlit/WorldNormals"
 			fixed4 frag(v2f i) : SV_Target
 			{
 				fixed4 col = tex2D(_MainTex, i.uv);
-				// shadow attenuation (1.0 = fully lit, 0.0 = fully shadowed)
-				fixed shadow = SHADOW_ATTENUATION(i);
+				fixed shadow = SHADOW_ATTENUATION(i); //0.0-1.0 shadowed-lit
 				fixed3 lighting = i.diff * shadow + i.ambient + i.spec * shadow;
 				col.rgb *= lighting;
 				return col;
 			}
+			ENDCG
+		}
+
+		//normal pass
+		Pass
+		{
+			Tags{ "LightMode" = "ForwardAdd" }
+			Blend One One
+			CGPROGRAM
+			#pragma vertex vert
+			#pragma fragment frag
+			#include "UnityCG.cginc"
+
+			struct v2f {
+			half3 worldPos : TEXCOORD0;
+			half3 tspace0 : TEXCOORD1; // tangent.x, bitangent.x, normal.x
+			half3 tspace1 : TEXCOORD2; // tangent.y, bitangent.y, normal.y
+			half3 tspace2 : TEXCOORD3; // tangent.z, bitangent.z, normal.z
+										// texture coordinate for the normal map
+			float2 uv : TEXCOORD4;
+			float4 pos : SV_POSITION;
+		};
+
+		// vertex shader: takes object space normal as input too
+		v2f vert(float4 vertex : POSITION, float3 normal : NORMAL, float4 tangent : TANGENT, float2 uv : TEXCOORD0)
+		{
+			v2f o;
+			o.pos = UnityObjectToClipPos(vertex);
+			o.worldPos = mul(unity_ObjectToWorld, vertex).xyz;
+			half3 wNormal = UnityObjectToWorldNormal(normal);
+			half3 wTangent = UnityObjectToWorldDir(tangent.xyz);
+			// compute bitangent from cross product of normal and tangent
+			half tangentSign = tangent.w * unity_WorldTransformParams.w;
+			half3 wBitangent = cross(wNormal, wTangent) * tangentSign;
+			// tangent space matrix
+			o.tspace0 = half3(wTangent.x, wBitangent.x, wNormal.x);
+			o.tspace1 = half3(wTangent.y, wBitangent.y, wNormal.y);
+			o.tspace2 = half3(wTangent.z, wBitangent.z, wNormal.z);
+			o.uv = uv;
+			return o;
+		}
+
+		//from shader properties
+		sampler2D _MainTex;
+		sampler2D _BumpMap;
+
+		fixed4 frag(v2f i) : SV_Target
+		{
+			// sample the normal map, and decode from the Unity encoding
+			half3 tnormal = UnpackNormal(tex2D(_BumpMap, i.uv));
+			// normal from tangent to world space
+			half3 worldNormal;
+			worldNormal.x = dot(i.tspace0, tnormal);
+			worldNormal.y = dot(i.tspace1, tnormal);
+			worldNormal.z = dot(i.tspace2, tnormal);
+
+			//compute view dir and refl vector per pixel
+			half3 worldViewDir = normalize(UnityWorldSpaceViewDir(i.worldPos));
+			half3 worldRefl = reflect(-worldViewDir, worldNormal);
+
+			half4 skyData = UNITY_SAMPLE_TEXCUBE(unity_SpecCube0, worldRefl);
+			half3 skyColor = DecodeHDR(skyData, unity_SpecCube0_HDR);
+			fixed4 c = 0;
+			c.rgb = skyColor;
+
+			// modulate sky color with the base texture, and the occlusion map
+			fixed3 baseColor = tex2D(_MainTex, i.uv).rgb;
+			c.rgb = baseColor + tnormal*skyColor;
+
+			return c;
+			}
+			ENDCG
+		}
+
+		// cast shadow pass
+		Pass
+		{
+			Tags{ "LightMode" = "ShadowCaster" }
+
+			CGPROGRAM
+			#pragma vertex vert
+			#pragma fragment frag
+			#pragma multi_compile_shadowcaster
+			#include "UnityCG.cginc"
+
+			struct v2f {
+			V2F_SHADOW_CASTER;
+		};
+
+		v2f vert(appdata_base v)
+		{
+			v2f o;
+			TRANSFER_SHADOW_CASTER_NORMALOFFSET(o)
+				return o;
+		}
+
+		float4 frag(v2f i) : SV_Target
+		{
+			SHADOW_CASTER_FRAGMENT(i)
+		}
 			ENDCG
 		}
 
