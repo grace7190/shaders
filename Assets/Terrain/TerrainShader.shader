@@ -7,7 +7,8 @@ Shader "Unlit/WorldNormals"
 		_MainTex ("Texture", 2D) = "white" {}
 		_BumpMap("Normal Map", 2D) = "bump" {}
 		_Tiling("Tiling", Float) = 1.0
-		//_Specular("Spec", Range(0.0,50.0)) = 0.0
+		_Specular("Spec", Range(0.0,50.0)) = 0.0
+		_SpecMultiplier("SpecMulti", Range(0.0,1.0)) = 0.0
 	}
 
 	SubShader
@@ -38,12 +39,13 @@ Shader "Unlit/WorldNormals"
 				SHADOW_COORDS(1) // put shadows data into TEXCOORD1
 				fixed3 diff : COLOR0;
 				fixed3 ambient : COLOR1;
-				//fixed3 spec : COLOR2;
+				fixed3 spec : COLOR2;
 				float4 pos : SV_POSITION;
 			};
 
 				//from shader properties
-			//float _Specular;
+			float _Specular;
+			float _SpecMultiplier;
 			float _Tiling;
 
 			v2f vert(appdata_base v)
@@ -58,8 +60,8 @@ Shader "Unlit/WorldNormals"
 
 				//blinn-phong | halfDir=lightDir+viewDir
 				half3 halfDir = normalize(_WorldSpaceLightPos0.xyz + normalize(WorldSpaceViewDir(v.vertex)));
-				//float specAngle = max(dot(halfDir, worldNormal), 0.0);
-				//o.spec = pow(specAngle, _Specular) * _LightColor0;
+				float specAngle = max(dot(halfDir, worldNormal), 0.0);
+				o.spec = pow(specAngle, _Specular) * _LightColor0 * _SpecMultiplier;
 
 				// compute shadows data
 				TRANSFER_SHADOW(o)
@@ -72,7 +74,7 @@ Shader "Unlit/WorldNormals"
 			{
 				fixed4 col = tex2D(_MainTex, i.uv);
 				fixed shadow = SHADOW_ATTENUATION(i); //0.0-1.0 shadowed-lit
-				fixed3 lighting = i.diff * shadow + i.ambient;// +i.spec * shadow;
+				fixed3 lighting = i.diff * shadow + i.ambient + i.spec * shadow;
 				col.rgb *= lighting;
 				return col;
 			}
@@ -85,12 +87,12 @@ Shader "Unlit/WorldNormals"
 			Tags{ "LightMode" = "ForwardAdd" }
 			Blend One One
 				CGPROGRAM
-#pragma vertex vert
-#pragma fragment frag
-#include "UnityCG.cginc"
-#include "Lighting.cginc"
-#pragma multi_compile_fwdbase nolightmap nodirlightmap nodynlightmap novertexlight
-#include "AutoLight.cginc"
+				#pragma vertex vert
+				#pragma fragment frag
+				#include "UnityCG.cginc"
+				#include "Lighting.cginc"
+				#pragma multi_compile_fwdbase nolightmap nodirlightmap nodynlightmap novertexlight
+				#include "AutoLight.cginc"
 
 				// exactly the same as in previous shader
 				struct v2f {
@@ -136,18 +138,18 @@ Shader "Unlit/WorldNormals"
 
 			half3 lightDirection = normalize(_WorldSpaceLightPos0.xyz);
 			float3 diffuseReflection = _LightColor0.rgb * baseColor.rgb * max(0.0, dot(worldNormal, lightDirection));
-			//float3 specularReflection;
-			//if (dot(worldNormal, lightDirection) < 0.0)
-			//{
-			//	specularReflection = float3(0.0, 0.0, 0.0);
-			//}
-			//else
-			//{
-			//	specularReflection = _LightColor0.rgb * _SpecColor.rgb * pow(max(0.0, dot(
-			//		reflect(-lightDirection, worldNormal), worldViewDir)), 1.0);
-			//}
+			float3 specularReflection;
+			if (dot(worldNormal, lightDirection) < 0.0)
+			{
+				specularReflection = float3(0.0, 0.0, 0.0);
+			}
+			else
+			{
+				specularReflection = _LightColor0.rgb * _SpecColor.rgb * pow(max(0.0, dot(
+					reflect(-lightDirection, worldNormal), worldViewDir)), 1.0);
+			}
 
-			c.rgb = diffuseReflection;// +specularReflection;
+			c.rgb = diffuseReflection + specularReflection;
 			return c;
 			}
 				ENDCG
